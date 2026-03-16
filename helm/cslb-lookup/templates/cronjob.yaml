@@ -2,9 +2,9 @@
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: {{ include "cslb-license-api.fullname" . }}-csv-refresh
+  name: {{ include "cslb-lookup.fullname" . }}-csv-refresh
   labels:
-    {{- include "cslb-license-api.labels" . | nindent 4 }}
+    {{- include "cslb-lookup.labels" . | nindent 4 }}
 spec:
   schedule: {{ .Values.csvRefresh.schedule | quote }}
   concurrencyPolicy: Forbid
@@ -15,7 +15,7 @@ spec:
       template:
         metadata:
           labels:
-            {{- include "cslb-license-api.selectorLabels" . | nindent 12 }}
+            {{- include "cslb-lookup.selectorLabels" . | nindent 12 }}
             app.kubernetes.io/component: csv-refresh
         spec:
           restartPolicy: OnFailure
@@ -26,10 +26,10 @@ spec:
               command: ["bash", "scripts/refresh_csv.sh"]
               envFrom:
                 - configMapRef:
-                    name: {{ include "cslb-license-api.fullname" . }}
+                    name: {{ include "cslb-lookup.fullname" . }}
                 {{- if .Values.secrets.firecrawlApiKey }}
                 - secretRef:
-                    name: {{ include "cslb-license-api.fullname" . }}
+                    name: {{ include "cslb-lookup.fullname" . }}
                 {{- end }}
               resources:
                 requests:
@@ -47,6 +47,6 @@ spec:
           volumes:
             - name: data
               persistentVolumeClaim:
-                claimName: {{ include "cslb-license-api.fullname" . }}-data
+                claimName: {{ include "cslb-lookup.fullname" . }}-data
           {{- end }}
 {{- end }}

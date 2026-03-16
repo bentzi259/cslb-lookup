@@ -23,8 +23,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="CSLB License Checker API",
-    description="API for checking California Contractors State License Board license data",
+    title="CSLB Lookup API",
+    description="API for looking up California Contractors State License Board license data",
     version="1.0.0",
     lifespan=lifespan,
 )

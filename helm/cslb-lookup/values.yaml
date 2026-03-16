@@ -1,7 +1,7 @@
 replicaCount: 1
 
 image:
-  repository: cslb-license-api
+  repository: cslb-lookup
   tag: latest
   pullPolicy: IfNotPresent
 

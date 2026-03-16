@@ -1,8 +1,8 @@
-{{- define "cslb-license-api.name" -}}
+{{- define "cslb-lookup.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
-{{- define "cslb-license-api.fullname" -}}
+{{- define "cslb-lookup.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
@@ -15,13 +15,13 @@
 {{- end }}
 {{- end }}
 
-{{- define "cslb-license-api.labels" -}}
+{{- define "cslb-lookup.labels" -}}
 helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
-{{ include "cslb-license-api.selectorLabels" . }}
+{{ include "cslb-lookup.selectorLabels" . }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
-{{- define "cslb-license-api.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "cslb-license-api.name" . }}
+{{- define "cslb-lookup.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "cslb-lookup.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}

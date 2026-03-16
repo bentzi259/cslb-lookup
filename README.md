@@ -1,4 +1,4 @@
-# CSLB License Checker API
+# CSLB Lookup
 
 API service for querying California Contractors State License Board (CSLB) license data. Returns structured JSON with business info, license status, classifications, bond details, and workers' compensation data.
 
@@ -75,18 +75,18 @@ docker-compose up --build
 
 ```bash
 # Build image (available to Docker Desktop K8s automatically)
-docker build -t cslb-license-api:latest .
+docker build -t cslb-lookup:latest .
 
 # Deploy
-helm install cslb-api ./helm/cslb-license-api
+helm install cslb-api ./helm/cslb-lookup
 
 # Access
-kubectl port-forward svc/cslb-api-cslb-license-api 8000:8000
+kubectl port-forward svc/cslb-api-cslb-lookup 8000:8000
 ```
 
 ### Helm Configuration
 
-Key values in `helm/cslb-license-api/values.yaml`:
+Key values in `helm/cslb-lookup/values.yaml`:
 
 | Value | Default | Description |
 |-------|---------|-------------|
@@ -121,7 +121,7 @@ FIRECRAWL_API_KEY=           # Required for firecrawl source
 ├── scripts/
 │   └── refresh_csv.sh       # Daily CSV download script
 ├── helm/
-│   └── cslb-license-api/    # Helm chart
+│   └── cslb-lookup/    # Helm chart
 ├── Dockerfile
 ├── docker-compose.yml
 └── requirements.txt

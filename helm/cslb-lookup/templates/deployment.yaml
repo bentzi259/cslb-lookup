@@ -1,20 +1,20 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "cslb-license-api.fullname" . }}
+  name: {{ include "cslb-lookup.fullname" . }}
   labels:
-    {{- include "cslb-license-api.labels" . | nindent 4 }}
+    {{- include "cslb-lookup.labels" . | nindent 4 }}
 spec:
   {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
   {{- end }}
   selector:
     matchLabels:
-      {{- include "cslb-license-api.selectorLabels" . | nindent 6 }}
+      {{- include "cslb-lookup.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "cslb-license-api.selectorLabels" . | nindent 8 }}
+        {{- include "cslb-lookup.selectorLabels" . | nindent 8 }}
     spec:
       {{- with .Values.nodeSelector }}
       nodeSelector:
@@ -38,10 +38,10 @@ spec:
               protocol: TCP
           envFrom:
             - configMapRef:
-                name: {{ include "cslb-license-api.fullname" . }}
+                name: {{ include "cslb-lookup.fullname" . }}
             {{- if .Values.secrets.firecrawlApiKey }}
             - secretRef:
-                name: {{ include "cslb-license-api.fullname" . }}
+                name: {{ include "cslb-lookup.fullname" . }}
             {{- end }}
           livenessProbe:
             httpGet:
@@ -66,5 +66,5 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: {{ include "cslb-license-api.fullname" . }}-data
+            claimName: {{ include "cslb-lookup.fullname" . }}-data
       {{- end }}
