@@ -1,7 +1,8 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Security
+from fastapi.security import APIKeyHeader
 
 from app.config import settings
 from app.database import db_is_loaded, get_license, get_licenses, get_stats, init_db
@@ -9,6 +10,15 @@ from app.firecrawl_client import scrape_license, scrape_licenses
 from app.models import BulkLicenseRequest, BulkResponse, LicenseResponse
 
 logger = logging.getLogger("cslb-api")
+
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+async def verify_api_key(api_key: str | None = Security(api_key_header)):
+    if not settings.api_key:
+        return  # No key configured = auth disabled
+    if api_key != settings.api_key:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
 
 
 @asynccontextmanager
@@ -46,12 +56,12 @@ async def health():
     }
 
 
-@app.get("/api/stats")
+@app.get("/api/stats", dependencies=[Depends(verify_api_key)])
 async def stats():
     return await get_stats()
 
 
-@app.get("/api/license/{license_number}", response_model=LicenseResponse)
+@app.get("/api/license/{license_number}", response_model=LicenseResponse, dependencies=[Depends(verify_api_key)])
 async def lookup_license(
     license_number: str,
     source: str | None = Query(None, regex="^(csv|firecrawl)$"),
@@ -85,7 +95,7 @@ async def lookup_license(
     return result
 
 
-@app.post("/api/licenses", response_model=BulkResponse)
+@app.post("/api/licenses", response_model=BulkResponse, dependencies=[Depends(verify_api_key)])
 async def bulk_lookup(request: BulkLicenseRequest):
     resolved_source = _resolve_source(request.source)
 

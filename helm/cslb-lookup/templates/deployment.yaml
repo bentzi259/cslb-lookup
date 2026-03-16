@@ -39,7 +39,7 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "cslb-lookup.fullname" . }}
-            {{- if .Values.secrets.firecrawlApiKey }}
+            {{- if or .Values.secrets.apiKey .Values.secrets.firecrawlApiKey }}
             - secretRef:
                 name: {{ include "cslb-lookup.fullname" . }}
             {{- end }}
