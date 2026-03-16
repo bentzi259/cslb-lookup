@@ -1,0 +1,52 @@
+{{- if .Values.csvRefresh.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ include "cslb-license-api.fullname" . }}-csv-refresh
+  labels:
+    {{- include "cslb-license-api.labels" . | nindent 4 }}
+spec:
+  schedule: {{ .Values.csvRefresh.schedule | quote }}
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            {{- include "cslb-license-api.selectorLabels" . | nindent 12 }}
+            app.kubernetes.io/component: csv-refresh
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: csv-refresh
+              image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+              imagePullPolicy: {{ .Values.image.pullPolicy }}
+              command: ["bash", "scripts/refresh_csv.sh"]
+              envFrom:
+                - configMapRef:
+                    name: {{ include "cslb-license-api.fullname" . }}
+                {{- if .Values.secrets.firecrawlApiKey }}
+                - secretRef:
+                    name: {{ include "cslb-license-api.fullname" . }}
+                {{- end }}
+              resources:
+                requests:
+                  cpu: 200m
+                  memory: 512Mi
+                limits:
+                  cpu: 1000m
+                  memory: 1Gi
+              {{- if .Values.persistence.enabled }}
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+              {{- end }}
+          {{- if .Values.persistence.enabled }}
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: {{ include "cslb-license-api.fullname" . }}-data
+          {{- end }}
+{{- end }}

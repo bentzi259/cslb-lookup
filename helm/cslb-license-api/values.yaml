@@ -1,0 +1,57 @@
+replicaCount: 1
+
+image:
+  repository: cslb-license-api
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8000
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: cslb-api.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+persistence:
+  enabled: true
+  storageClass: ""
+  size: 1Gi
+  accessModes:
+    - ReadWriteOnce
+
+config:
+  dataSource: csv
+  databasePath: /data/licenses.db
+
+secrets:
+  firecrawlApiKey: ""
+
+csvRefresh:
+  enabled: true
+  schedule: "0 6 * * *"
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 3
+  targetCPUUtilization: 80
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

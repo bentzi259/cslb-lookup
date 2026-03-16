@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "cslb-license-api.fullname" . }}
+  labels:
+    {{- include "cslb-license-api.labels" . | nindent 4 }}
+data:
+  DATA_SOURCE: {{ .Values.config.dataSource | quote }}
+  DATABASE_PATH: {{ .Values.config.databasePath | quote }}
