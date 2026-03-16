@@ -46,7 +46,30 @@ API service for querying California Contractors State License Board (CSLB) licen
 | `GET` | `/api/stats` | Database stats |
 | `GET` | `/health` | Health check |
 
-Add `?source=firecrawl` to any GET request to use live scraping instead of CSV data.
+### Data Source Selection
+
+The API supports two data sources, configurable at two levels:
+
+**1. Default for all requests** — set `DATA_SOURCE` in `.env`:
+```
+DATA_SOURCE=csv          # local SQLite database (default)
+DATA_SOURCE=firecrawl    # live CSLB website scraping
+```
+
+**2. Per-request override** — append `?source=` to any request:
+```bash
+curl http://localhost:8001/api/license/1041069?source=csv
+curl http://localhost:8001/api/license/1041069?source=firecrawl
+```
+
+For bulk requests, set `"source"` in the JSON body:
+```json
+{"license_numbers": ["1041069"], "source": "firecrawl"}
+```
+
+**Priority:** per-request param > `DATA_SOURCE` env var > defaults to `csv`
+
+> Firecrawl requires `FIRECRAWL_API_KEY` in `.env`. Free tier provides 500 credits (~5 credits per lookup).
 
 ### Usage Examples
 
