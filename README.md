@@ -135,6 +135,7 @@ Key values in `helm/cslb-lookup/values.yaml`:
 | Value | Default | Description |
 |-------|---------|-------------|
 | `config.dataSource` | `csv` | `csv` or `firecrawl` |
+| `secrets.apiKey` | `""` | API key for authentication |
 | `secrets.firecrawlApiKey` | `""` | Firecrawl API key |
 | `csvRefresh.enabled` | `true` | Enable daily CSV refresh CronJob |
 | `csvRefresh.schedule` | `0 6 * * *` | Cron schedule (daily 6 AM UTC) |
@@ -146,9 +147,28 @@ Key values in `helm/cslb-lookup/values.yaml`:
 Copy `.env.example` to `.env` and set:
 
 ```
+API_KEY=                     # API key for auth (empty = auth disabled)
 DATA_SOURCE=csv              # csv or firecrawl
 DATABASE_PATH=data/licenses.db
 FIRECRAWL_API_KEY=           # Required for firecrawl source
+```
+
+## Authentication
+
+API endpoints under `/api/*` are protected with an API key when `API_KEY` is set. The `/health` endpoint is always public.
+
+Pass the key via the `X-API-Key` header:
+
+```bash
+curl -H "X-API-Key: your-secret-key" http://localhost:8001/api/license/1041069
+```
+
+If `API_KEY` is empty or unset, authentication is disabled and all endpoints are open.
+
+For K8s, set via Helm:
+
+```bash
+helm install cslb-lookup ./helm/cslb-lookup --set secrets.apiKey=your-secret-key
 ```
 
 ## Project Structure
