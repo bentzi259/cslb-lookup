@@ -22,16 +22,18 @@ API service for querying California Contractors State License Board (CSLB) licen
 └──────────────────────────────────────────────────────┘
 ```
 
-**Two data sources (configurable):**
+**Three data sources (configurable):**
 
 - **CSV/SQLite** (default) — CSLB's bulk CSV (~240k records) loaded into SQLite for fast lookups
-- **Firecrawl** (optional) — Live scraping of the CSLB website using browser automation for real-time data
+- **Scraper** (free) — Direct HTTP scraping of the CSLB website for real-time data, no API key required
+- **Firecrawl** (optional) — AI-powered browser automation via the Firecrawl API for real-time data
 
 ## Tech Stack
 
 - **Python 3.11+** / **FastAPI** / **Uvicorn** — async API server
 - **SQLite** via `aiosqlite` — lightweight database, no external dependencies
 - **pandas** — CSV parsing and data import
+- **httpx** — direct HTTP scraping of CSLB website (free, no API key)
 - **Firecrawl** (`firecrawl-py`) — AI-powered web scraping with browser actions
 - **Docker** — containerization
 - **Helm 3** — Kubernetes deployment, configurable for any cluster
@@ -48,28 +50,32 @@ API service for querying California Contractors State License Board (CSLB) licen
 
 ### Data Source Selection
 
-The API supports two data sources, configurable at two levels:
+The API supports three data sources, configurable at two levels:
 
 **1. Default for all requests** — set `DATA_SOURCE` in `.env`:
 ```
 DATA_SOURCE=csv          # local SQLite database (default)
-DATA_SOURCE=firecrawl    # live CSLB website scraping
+DATA_SOURCE=scraper      # free direct HTTP scraping of CSLB website
+DATA_SOURCE=firecrawl    # AI-powered browser automation (requires API key)
 ```
 
 **2. Per-request override** — append `?source=` to any request:
 ```bash
 curl http://localhost:8001/api/license/1041069?source=csv
+curl http://localhost:8001/api/license/1041069?source=scraper
 curl http://localhost:8001/api/license/1041069?source=firecrawl
 ```
 
 For bulk requests, set `"source"` in the JSON body:
 ```json
-{"license_numbers": ["1041069"], "source": "firecrawl"}
+{"license_numbers": ["1041069"], "source": "scraper"}
 ```
 
 **Priority:** per-request param > `DATA_SOURCE` env var > defaults to `csv`
 
-> Firecrawl requires `FIRECRAWL_API_KEY` in `.env`. Free tier provides 500 credits (~5 credits per lookup).
+> **Scraper** — free, no API key needed. Fetches the CSLB license detail page directly via HTTP and parses the HTML. Limited to 10 licenses per bulk request.
+>
+> **Firecrawl** — requires `FIRECRAWL_API_KEY` in `.env`. Uses AI-powered browser automation. Free tier provides 500 credits (~5 credits per lookup).
 
 ### Usage Examples
 
@@ -134,7 +140,7 @@ Key values in `helm/cslb-lookup/values.yaml`:
 
 | Value | Default | Description |
 |-------|---------|-------------|
-| `config.dataSource` | `csv` | `csv` or `firecrawl` |
+| `config.dataSource` | `csv` | `csv`, `scraper`, or `firecrawl` |
 | `secrets.apiKey` | `""` | API key for authentication |
 | `secrets.firecrawlApiKey` | `""` | Firecrawl API key |
 | `csvRefresh.enabled` | `true` | Enable daily CSV refresh CronJob |
@@ -148,9 +154,9 @@ Copy `.env.example` to `.env` and set:
 
 ```
 API_KEY=                     # API key for auth (empty = auth disabled)
-DATA_SOURCE=csv              # csv or firecrawl
+DATA_SOURCE=csv              # csv, scraper, or firecrawl
 DATABASE_PATH=data/licenses.db
-FIRECRAWL_API_KEY=           # Required for firecrawl source
+FIRECRAWL_API_KEY=           # Required for firecrawl source (scraper needs no key)
 ```
 
 ## Authentication
@@ -181,7 +187,8 @@ helm install cslb-lookup ./helm/cslb-lookup --set secrets.apiKey=your-secret-key
 │   ├── models.py            # Pydantic models
 │   ├── csv_loader.py        # CSV → SQLite import
 │   ├── classifications.py   # CSLB code descriptions
-│   └── firecrawl_client.py  # Live scraping client
+│   ├── scraper_client.py    # Free direct HTTP scraper
+│   └── firecrawl_client.py  # Firecrawl API scraping client
 ├── scripts/
 │   └── refresh_csv.sh       # Daily CSV download script
 ├── helm/

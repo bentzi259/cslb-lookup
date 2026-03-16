@@ -5,8 +5,10 @@ image:
   tag: latest
   pullPolicy: IfNotPresent
 
+# AKS deployment: use LoadBalancer to get a public IP exposed to the internet.
+# The Azure LB will assign an external IP automatically.
 service:
-  type: ClusterIP
+  type: LoadBalancer
   port: 8000
 
 ingress:

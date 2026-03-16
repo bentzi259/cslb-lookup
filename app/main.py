@@ -7,6 +7,7 @@ from fastapi.security import APIKeyHeader
 from app.config import settings
 from app.database import db_is_loaded, get_license, get_licenses, get_stats, init_db
 from app.firecrawl_client import scrape_license, scrape_licenses
+from app.scraper_client import scrape_license as scraper_license, scrape_licenses as scraper_licenses
 from app.models import BulkLicenseRequest, BulkResponse, LicenseResponse
 
 logger = logging.getLogger("cslb-api")
@@ -41,7 +42,7 @@ app = FastAPI(
 
 
 def _resolve_source(source: str | None) -> str:
-    if source and source in ("csv", "firecrawl"):
+    if source and source in ("csv", "firecrawl", "scraper"):
         return source
     return settings.data_source
 
@@ -64,7 +65,7 @@ async def stats():
 @app.get("/api/license/{license_number}", response_model=LicenseResponse, dependencies=[Depends(verify_api_key)])
 async def lookup_license(
     license_number: str,
-    source: str | None = Query(None, regex="^(csv|firecrawl)$"),
+    source: str | None = Query(None, regex="^(csv|firecrawl|scraper)$"),
 ):
     license_number = license_number.strip()
     if not license_number.isdigit() or len(license_number) > 8:
@@ -79,6 +80,12 @@ async def lookup_license(
                 detail="FIRECRAWL_API_KEY not configured",
             )
         result = scrape_license(license_number)
+        if not result:
+            raise HTTPException(status_code=404, detail="License not found")
+        return result
+
+    if resolved_source == "scraper":
+        result = scraper_license(license_number)
         if not result:
             raise HTTPException(status_code=404, detail="License not found")
         return result
@@ -100,7 +107,7 @@ async def bulk_lookup(request: BulkLicenseRequest):
     resolved_source = _resolve_source(request.source)
 
     # Validate limits
-    max_count = 10 if resolved_source == "firecrawl" else 100
+    max_count = 10 if resolved_source in ("firecrawl", "scraper") else 100
     if len(request.license_numbers) > max_count:
         raise HTTPException(
             status_code=400,
@@ -124,6 +131,8 @@ async def bulk_lookup(request: BulkLicenseRequest):
                 detail="FIRECRAWL_API_KEY not configured",
             )
         results = scrape_licenses(valid_numbers)
+    elif resolved_source == "scraper":
+        results = scraper_licenses(valid_numbers)
     else:
         if not await db_is_loaded():
             raise HTTPException(
