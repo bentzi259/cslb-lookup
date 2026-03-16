@@ -48,6 +48,27 @@ API service for querying California Contractors State License Board (CSLB) licen
 
 Add `?source=firecrawl` to any GET request to use live scraping instead of CSV data.
 
+### Usage Examples
+
+```bash
+# Single license lookup
+curl http://localhost:8001/api/license/1041069
+
+# Bulk lookup
+curl -X POST http://localhost:8001/api/licenses \
+  -H "Content-Type: application/json" \
+  -d '{"license_numbers": ["1041069", "1000002"]}'
+
+# Database stats
+curl http://localhost:8001/api/stats
+
+# Health check
+curl http://localhost:8001/health
+
+# Swagger docs
+open http://localhost:8001/docs
+```
+
 ## Quick Start
 
 ```bash
