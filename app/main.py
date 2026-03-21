@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -144,6 +145,148 @@ async def bulk_lookup(request: BulkLicenseRequest):
     found_numbers = {r.license_number for r in results}
     for num in valid_numbers:
         if num not in found_numbers:
+            errors.append({"license_number": num, "error": "Not found"})
+
+    return BulkResponse(results=results, errors=errors if errors else None)
+
+
+def _merge_responses(
+    csv: LicenseResponse | None, scraper: LicenseResponse | None
+) -> LicenseResponse | None:
+    if not csv and not scraper:
+        return None
+    if not csv:
+        return scraper.model_copy(update={"data_source": "combined"})
+    if not scraper:
+        return csv.model_copy(update={"data_source": "combined"})
+
+    # CSV as base, overlay scraper-only fields, fallback for nulls
+    bi = csv.business_information
+    sbi = scraper.business_information
+    merged_bi = bi.model_copy(update={
+        "business_name": bi.business_name or sbi.business_name,
+        "address": bi.address or sbi.address,
+        "phone": bi.phone or sbi.phone,
+        "entity": bi.entity or sbi.entity,
+        "issue_date": bi.issue_date or sbi.issue_date,
+        "reissue_date": bi.reissue_date or sbi.reissue_date,
+        "expire_date": bi.expire_date or sbi.expire_date,
+    })
+
+    ls = csv.license_status
+    sls = scraper.license_status
+    merged_ls = ls.model_copy(update={
+        "status": ls.status or sls.status,
+        "additional_status": scraper.license_status.additional_status,
+        "inactivation_date": ls.inactivation_date or sls.inactivation_date,
+        "reactivation_date": ls.reactivation_date or sls.reactivation_date,
+    })
+
+    cb = csv.contractors_bond
+    scb = scraper.contractors_bond
+    merged_cb = cb.model_copy(update={
+        "bond_number": cb.bond_number or scb.bond_number,
+        "bond_amount": cb.bond_amount or scb.bond_amount,
+        "bond_company": cb.bond_company or scb.bond_company,
+        "effective_date": cb.effective_date or scb.effective_date,
+    })
+
+    wc = csv.workers_compensation
+    swc = scraper.workers_compensation
+    merged_wc = wc.model_copy(update={
+        "coverage_type": wc.coverage_type or swc.coverage_type,
+        "insurance_company": wc.insurance_company or swc.insurance_company,
+        "policy_number": wc.policy_number or swc.policy_number,
+        "effective_date": wc.effective_date or swc.effective_date,
+        "expire_date": wc.expire_date or swc.expire_date,
+    })
+
+    return LicenseResponse(
+        license_number=csv.license_number,
+        last_update=csv.last_update,
+        extract_date=scraper.extract_date,
+        business_information=merged_bi,
+        license_status=merged_ls,
+        contractors_bond=merged_cb,
+        classifications=csv.classifications or scraper.classifications,
+        workers_compensation=merged_wc,
+        personnel=scraper.personnel,
+        asbestos_reg=csv.asbestos_reg,
+        data_source="combined",
+    )
+
+
+@app.get("/api/license/{license_number}/combined", response_model=LicenseResponse, dependencies=[Depends(verify_api_key)], summary="Combined license lookup", description="Look up a license using both CSV and scraper sources in parallel, merging the results. Returns the most complete data: CSV fields (county, secondary_status, asbestos_reg) plus scraper fields (additional_status, extract_date, personnel).")
+async def combined_lookup(license_number: str):
+    license_number = license_number.strip()
+    if not license_number.isdigit() or len(license_number) > 8:
+        raise HTTPException(status_code=400, detail="Invalid license number format")
+
+    db_loaded = await db_is_loaded()
+
+    async def _csv():
+        return await get_license(license_number) if db_loaded else None
+
+    csv_result, scraper_result = await asyncio.gather(
+        _csv(), asyncio.to_thread(scrape_license, license_number), return_exceptions=True
+    )
+
+    if isinstance(csv_result, Exception):
+        csv_result = None
+    if isinstance(scraper_result, Exception):
+        scraper_result = None
+
+    result = _merge_responses(csv_result, scraper_result)
+    if not result:
+        raise HTTPException(status_code=404, detail="License not found")
+    return result
+
+
+@app.post("/api/licenses/combined", response_model=BulkResponse, dependencies=[Depends(verify_api_key)], summary="Bulk combined license lookup", description="Look up multiple licenses using both CSV and scraper in parallel. Max 50 licenses per request. Each result merges CSV and scraper data for the most complete response.")
+async def bulk_combined_lookup(request: BulkLicenseRequest):
+    if len(request.license_numbers) > 50:
+        raise HTTPException(
+            status_code=400,
+            detail="Maximum 50 license numbers per request for combined source",
+        )
+
+    errors = []
+    valid_numbers = []
+    for num in request.license_numbers:
+        num = num.strip()
+        if not num.isdigit() or len(num) > 8:
+            errors.append({"license_number": num, "error": "Invalid format"})
+        else:
+            valid_numbers.append(num)
+
+    # Launch CSV batch + all scraper requests in parallel
+    db_loaded = await db_is_loaded()
+    tasks = []
+    async def _csv_batch():
+        return await get_licenses(valid_numbers) if db_loaded else []
+
+    tasks = [_csv_batch()]
+    for num in valid_numbers:
+        tasks.append(asyncio.to_thread(scrape_license, num))
+
+    task_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # First result is the CSV batch, rest are individual scraper results
+    csv_list = task_results[0] if not isinstance(task_results[0], Exception) else []
+    csv_map = {r.license_number: r for r in csv_list}
+
+    scraper_map = {}
+    for i, num in enumerate(valid_numbers):
+        scraper_result = task_results[i + 1]
+        if not isinstance(scraper_result, Exception) and scraper_result is not None:
+            scraper_map[num] = scraper_result
+
+    results = []
+    for num in valid_numbers:
+        merged = _merge_responses(csv_map.get(num), scraper_map.get(num))
+        if merged:
+            results.append(merged)
+        else:
             errors.append({"license_number": num, "error": "Not found"})
 
     return BulkResponse(results=results, errors=errors if errors else None)
