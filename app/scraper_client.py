@@ -1,14 +1,16 @@
-"""Free CSLB license scraper - replaces Firecrawl with direct HTTP requests."""
+"""CSLB license scraper - direct HTTP requests to the CSLB website."""
 
 import re
 
 import httpx
 
 from app.models import (
-    BusinessInfo,
+    BusinessInformation,
     Classification,
+    ContractorsBond,
     LicenseResponse,
     LicenseStatus,
+    PersonnelMember,
     WorkersCompensation,
 )
 
@@ -19,6 +21,7 @@ CSLB_DETAIL_URL = (
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Referer": "https://www.cslb.ca.gov/OnlineServices/CheckLicenseII/CheckLicense.aspx",
 }
 
 
@@ -37,9 +40,27 @@ def _get_text_by_id(html: str, element_id: str) -> str | None:
 
 
 def _get_html_by_id(html: str, element_id: str) -> str | None:
-    pattern = rf'id="{re.escape(element_id)}"[^>]*>(.*?)</td>'
-    match = re.search(pattern, html, re.DOTALL)
-    return match.group(1) if match else None
+    start_pattern = rf'id="{re.escape(element_id)}"[^>]*>'
+    match = re.search(start_pattern, html, re.DOTALL)
+    if not match:
+        return None
+    start = match.end()
+    depth = 1
+    pos = start
+    while depth > 0 and pos < len(html):
+        next_open = html.find("<td", pos)
+        next_close = html.find("</td>", pos)
+        if next_close == -1:
+            break
+        if next_open != -1 and next_open < next_close:
+            depth += 1
+            pos = next_open + 3
+        else:
+            depth -= 1
+            if depth == 0:
+                return html[start:next_close]
+            pos = next_close + 5
+    return None
 
 
 def _parse_bus_info(html: str) -> dict:
@@ -103,13 +124,21 @@ def _parse_bond_info(html: str) -> dict:
         return {}
 
     result = {}
+    company_match = re.search(r'<a[^>]*>([^<]+)</a>', raw)
+    if company_match:
+        result["bond_company"] = company_match.group(1).strip()
+
+    number_match = re.search(r"Bond Number:\s*</strong>\s*([^<]+)", raw)
+    if number_match:
+        result["bond_number"] = number_match.group(1).strip()
+
     amount_match = re.search(r"Bond Amount:\s*</strong>\s*([^<]+)", raw)
     if amount_match:
         result["bond_amount"] = amount_match.group(1).strip()
 
-    company_match = re.search(r'<a[^>]*>([^<]+)</a>', raw)
-    if company_match:
-        result["bond_company"] = company_match.group(1).strip()
+    eff_match = re.search(r"Effective Date:\s*</strong>\s*([^<]+)", raw)
+    if eff_match:
+        result["effective_date"] = eff_match.group(1).strip()
 
     return result
 
@@ -122,7 +151,9 @@ def _parse_wc_info(html: str) -> dict:
     result = {}
     text = re.sub(r"<[^>]+>", " ", raw)
     text = re.sub(r"\s+", " ", text).strip()
-    result["status"] = text.split(".")[0].strip() if text else None
+    if text:
+        first_line = text.split("Policy Number:")[0].strip() if "Policy Number:" in text else text.split(".")[0].strip()
+        result["coverage_type"] = first_line or None
 
     company_match = re.search(r'<a[^>]*>([^<]+)</a>', raw)
     if company_match:
@@ -138,9 +169,36 @@ def _parse_wc_info(html: str) -> dict:
 
     exp_match = re.search(r"Expire Date:\s*</strong>\s*([^<]+)", raw)
     if exp_match:
-        result["expiration_date"] = exp_match.group(1).strip()
+        result["expire_date"] = exp_match.group(1).strip()
 
     return result
+
+
+def _parse_personnel(html: str) -> list[PersonnelMember]:
+    raw = _get_html_by_id(html, "MainContent_MultiLicDisplay")
+    if not raw:
+        return []
+
+    members = []
+    # Try table rows first (some licenses list personnel in a table)
+    rows = re.findall(r"<tr[^>]*>(.*?)</tr>", raw, re.DOTALL)
+    for row in rows:
+        cells = re.findall(r"<td[^>]*>(.*?)</td>", row, re.DOTALL)
+        if len(cells) >= 2:
+            name = re.sub(r"<[^>]+>", "", cells[0]).strip()
+            role = re.sub(r"<[^>]+>", "", cells[1]).strip()
+            if name:
+                members.append(PersonnelMember(name=name, role=role or None))
+
+    # Fall back to list items
+    if not members:
+        items = re.findall(r"<li[^>]*>(.*?)</li>", raw, re.DOTALL)
+        for item in items:
+            text = re.sub(r"<[^>]+>", "", item).strip()
+            if text:
+                members.append(PersonnelMember(name=text, role=None))
+
+    return members
 
 
 def scrape_license(license_number: str) -> LicenseResponse | None:
@@ -172,25 +230,35 @@ def scrape_license(license_number: str) -> LicenseResponse | None:
             combined_name = biz_name
 
         status_text = _get_text_by_id(html, "MainContent_Status")
+        additional_status_text = _get_text_by_id(html, "MainContent_AddLicStatus")
+        personnel = _parse_personnel(html)
 
         return LicenseResponse(
             license_number=license_number,
-            business_information=BusinessInfo(
+            extract_date=_get_text_by_id(html, "MainContent_extractDate"),
+            business_information=BusinessInformation(
                 business_name=combined_name,
                 address=bus.get("address"),
                 phone=bus.get("phone"),
+                entity=_get_text_by_id(html, "MainContent_Entity"),
                 issue_date=_get_text_by_id(html, "MainContent_IssDt"),
-                expiration_date=_get_text_by_id(html, "MainContent_ExpDt"),
-                business_type=_get_text_by_id(html, "MainContent_Entity"),
+                reissue_date=_get_text_by_id(html, "MainContent_ReissDt"),
+                expire_date=_get_text_by_id(html, "MainContent_ExpDt"),
             ),
             license_status=LicenseStatus(
                 status=status_text,
+                additional_status=additional_status_text,
+                inactivation_date=_get_text_by_id(html, "MainContent_InactDt"),
+                reactivation_date=_get_text_by_id(html, "MainContent_ReactDt"),
+            ),
+            contractors_bond=ContractorsBond(
                 **_parse_bond_info(html),
             ),
             classifications=_parse_classifications(html),
             workers_compensation=WorkersCompensation(
                 **_parse_wc_info(html),
             ),
+            personnel=personnel or None,
             data_source="scraper",
         )
     finally:

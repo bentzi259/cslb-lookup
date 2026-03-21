@@ -1,6 +1,6 @@
 # CSLB Lookup
 
-API service for querying California Contractors State License Board (CSLB) license data. Returns structured JSON with business info, license status, classifications, bond details, and workers' compensation data.
+API service for querying California Contractors State License Board (CSLB) license data. Returns structured JSON with business info, license status, classifications, bond details, workers' compensation, and personnel data.
 
 ## Architecture
 
@@ -22,11 +22,10 @@ API service for querying California Contractors State License Board (CSLB) licen
 └──────────────────────────────────────────────────────┘
 ```
 
-**Three data sources (configurable):**
+**Two data sources (configurable):**
 
 - **CSV/SQLite** (default) — CSLB's bulk CSV (~240k records) loaded into SQLite for fast lookups
 - **Scraper** (free) — Direct HTTP scraping of the CSLB website for real-time data, no API key required
-- **Firecrawl** (optional) — AI-powered browser automation via the Firecrawl API for real-time data
 
 ## Tech Stack
 
@@ -34,7 +33,6 @@ API service for querying California Contractors State License Board (CSLB) licen
 - **SQLite** via `aiosqlite` — lightweight database, no external dependencies
 - **pandas** — CSV parsing and data import
 - **httpx** — direct HTTP scraping of CSLB website (free, no API key)
-- **Firecrawl** (`firecrawl-py`) — AI-powered web scraping with browser actions
 - **Docker** — containerization
 - **Helm 3** — Kubernetes deployment, configurable for any cluster
 - **Kubernetes CronJob** — daily CSV refresh from CSLB data portal
@@ -43,27 +41,24 @@ API service for querying California Contractors State License Board (CSLB) licen
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
+| `GET` | `/health` | Health check (public) |
+| `GET` | `/api/stats` | Database statistics |
+| `GET` | `/api/field-metadata` | Distinct values for enum-like fields |
 | `GET` | `/api/license/{number}` | Single license lookup |
 | `POST` | `/api/licenses` | Bulk lookup (up to 100) |
-| `GET` | `/api/stats` | Database stats |
-| `GET` | `/health` | Health check |
 
 ### Data Source Selection
-
-The API supports three data sources, configurable at two levels:
 
 **1. Default for all requests** — set `DATA_SOURCE` in `.env`:
 ```
 DATA_SOURCE=csv          # local SQLite database (default)
 DATA_SOURCE=scraper      # free direct HTTP scraping of CSLB website
-DATA_SOURCE=firecrawl    # AI-powered browser automation (requires API key)
 ```
 
 **2. Per-request override** — append `?source=` to any request:
 ```bash
-curl http://localhost:8001/api/license/1041069?source=csv
-curl http://localhost:8001/api/license/1041069?source=scraper
-curl http://localhost:8001/api/license/1041069?source=firecrawl
+curl http://localhost:8000/api/license/1041069?source=csv
+curl http://localhost:8000/api/license/1041069?source=scraper
 ```
 
 For bulk requests, set `"source"` in the JSON body:
@@ -74,28 +69,29 @@ For bulk requests, set `"source"` in the JSON body:
 **Priority:** per-request param > `DATA_SOURCE` env var > defaults to `csv`
 
 > **Scraper** — free, no API key needed. Fetches the CSLB license detail page directly via HTTP and parses the HTML. Limited to 10 licenses per bulk request.
->
-> **Firecrawl** — requires `FIRECRAWL_API_KEY` in `.env`. Uses AI-powered browser automation. Free tier provides 500 credits (~5 credits per lookup).
 
 ### Usage Examples
 
 ```bash
+# Health check
+curl http://localhost:8000/health
+
 # Single license lookup
-curl http://localhost:8001/api/license/1041069
+curl http://localhost:8000/api/license/1041069
 
 # Bulk lookup
-curl -X POST http://localhost:8001/api/licenses \
+curl -X POST http://localhost:8000/api/licenses \
   -H "Content-Type: application/json" \
   -d '{"license_numbers": ["1041069", "1000002"]}'
 
 # Database stats
-curl http://localhost:8001/api/stats
+curl http://localhost:8000/api/stats
 
-# Health check
-curl http://localhost:8001/health
+# Field metadata (distinct values for enum-like fields)
+curl http://localhost:8000/api/field-metadata
 
 # Swagger docs
-open http://localhost:8001/docs
+open http://localhost:8000/docs
 ```
 
 ## Quick Start
@@ -128,10 +124,10 @@ docker-compose up --build
 docker build -t cslb-lookup:latest .
 
 # Deploy
-helm install cslb-api ./helm/cslb-lookup
+helm install cslb-lookup ./helm/cslb-lookup
 
 # Access
-kubectl port-forward svc/cslb-api-cslb-lookup 8000:8000
+kubectl port-forward svc/cslb-lookup 8000:8000
 ```
 
 ### Helm Configuration
@@ -140,9 +136,8 @@ Key values in `helm/cslb-lookup/values.yaml`:
 
 | Value | Default | Description |
 |-------|---------|-------------|
-| `config.dataSource` | `csv` | `csv`, `scraper`, or `firecrawl` |
+| `config.dataSource` | `csv` | `csv` or `scraper` |
 | `secrets.apiKey` | `""` | API key for authentication |
-| `secrets.firecrawlApiKey` | `""` | Firecrawl API key |
 | `csvRefresh.enabled` | `true` | Enable daily CSV refresh CronJob |
 | `csvRefresh.schedule` | `0 6 * * *` | Cron schedule (daily 6 AM UTC) |
 | `persistence.size` | `1Gi` | PVC storage size |
@@ -154,9 +149,8 @@ Copy `.env.example` to `.env` and set:
 
 ```
 API_KEY=                     # API key for auth (empty = auth disabled)
-DATA_SOURCE=csv              # csv, scraper, or firecrawl
+DATA_SOURCE=csv              # csv or scraper
 DATABASE_PATH=data/licenses.db
-FIRECRAWL_API_KEY=           # Required for firecrawl source (scraper needs no key)
 ```
 
 ## Authentication
@@ -166,7 +160,7 @@ API endpoints under `/api/*` are protected with an API key when `API_KEY` is set
 Pass the key via the `X-API-Key` header:
 
 ```bash
-curl -H "X-API-Key: your-secret-key" http://localhost:8001/api/license/1041069
+curl -H "X-API-Key: your-secret-key" http://localhost:8000/api/license/1041069
 ```
 
 If `API_KEY` is empty or unset, authentication is disabled and all endpoints are open.
@@ -186,13 +180,13 @@ helm install cslb-lookup ./helm/cslb-lookup --set secrets.apiKey=your-secret-key
 │   ├── database.py          # SQLite queries
 │   ├── models.py            # Pydantic models
 │   ├── csv_loader.py        # CSV → SQLite import
+│   ├── csv_downloader.py    # CSLB data portal downloader
 │   ├── classifications.py   # CSLB code descriptions
-│   ├── scraper_client.py    # Free direct HTTP scraper
-│   └── firecrawl_client.py  # Firecrawl API scraping client
+│   └── scraper_client.py    # Direct HTTP scraper
 ├── scripts/
 │   └── refresh_csv.sh       # Daily CSV download script
 ├── helm/
-│   └── cslb-lookup/    # Helm chart
+│   └── cslb-lookup/         # Helm chart
 ├── Dockerfile
 ├── docker-compose.yml
 └── requirements.txt

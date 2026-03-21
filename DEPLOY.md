@@ -39,7 +39,7 @@ No push needed — locally built images are available to the cluster automatical
 
 ## Step 3: Deploy with Helm
 
-### Basic deployment (CSV mode, no Firecrawl)
+### Basic deployment (CSV mode)
 
 ```bash
 helm install cslb-lookup ./helm/cslb-lookup \
@@ -47,12 +47,12 @@ helm install cslb-lookup ./helm/cslb-lookup \
   --set csvRefresh.enabled=false
 ```
 
-### With Firecrawl enabled
+### With API key authentication
 
 ```bash
 helm install cslb-lookup ./helm/cslb-lookup \
   --namespace default \
-  --set secrets.firecrawlApiKey=fc-YOUR-API-KEY
+  --set secrets.apiKey=your-secret-key
 ```
 
 ### With a custom image registry
@@ -83,7 +83,7 @@ helm install cslb-lookup ./helm/cslb-lookup \
   --namespace default \
   --set image.repository=<your-registry>/cslb-lookup \
   --set image.tag=latest \
-  --set secrets.firecrawlApiKey=fc-YOUR-API-KEY \
+  --set secrets.apiKey=your-secret-key \
   --set csvRefresh.enabled=true \
   --set csvRefresh.schedule="0 6 * * *" \
   --set persistence.storageClass=gp2 \
@@ -121,8 +121,8 @@ kubectl exec $POD -- python -m app.csv_loader /data/MasterLicenseData.csv /data/
 You should see output like:
 ```
 Loading CSV: /data/MasterLicenseData.csv
-Loaded 242794 records from CSV
-Inserted 242794 records into temp table
+Loaded 243505 records from CSV
+Inserted 243505 records into temp table
 Database updated successfully at /data/licenses.db
 ```
 
@@ -153,15 +153,19 @@ helm upgrade cslb-lookup ./helm/cslb-lookup --set service.type=NodePort
 curl http://localhost:8001/health
 
 # License lookup
-curl http://localhost:8001/api/license/1041069
+curl -H "X-API-Key: your-key" http://localhost:8001/api/license/1041069
 
 # Bulk lookup
 curl -X POST http://localhost:8001/api/licenses \
+  -H "X-API-Key: your-key" \
   -H "Content-Type: application/json" \
   -d '{"license_numbers": ["1041069", "1000002"]}'
 
 # Stats
-curl http://localhost:8001/api/stats
+curl -H "X-API-Key: your-key" http://localhost:8001/api/stats
+
+# Field metadata
+curl -H "X-API-Key: your-key" http://localhost:8001/api/field-metadata
 
 # Swagger docs
 open http://localhost:8001/docs

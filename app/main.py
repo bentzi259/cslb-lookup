@@ -5,10 +5,9 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Security
 from fastapi.security import APIKeyHeader
 
 from app.config import settings
-from app.database import db_is_loaded, get_license, get_licenses, get_stats, init_db
-from app.firecrawl_client import scrape_license, scrape_licenses
-from app.scraper_client import scrape_license as scraper_license, scrape_licenses as scraper_licenses
-from app.models import BulkLicenseRequest, BulkResponse, LicenseResponse
+from app.database import db_is_loaded, get_field_values, get_license, get_licenses, get_stats, init_db
+from app.scraper_client import scrape_license, scrape_licenses
+from app.models import BulkLicenseRequest, BulkResponse, FieldMetadataResponse, LicenseResponse
 
 logger = logging.getLogger("cslb-api")
 
@@ -35,19 +34,27 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="CSLB Lookup API",
-    description="API for looking up California Contractors State License Board license data",
+    description=(
+        "API for looking up California Contractors State License Board (CSLB) license data. "
+        "Returns structured JSON with business info, license status, classifications, bond details, "
+        "workers' compensation, and personnel data.\n\n"
+        "**Data Sources:**\n"
+        "- `csv` (default) — CSLB bulk CSV (~240k records) loaded into SQLite\n"
+        "- `scraper` — Direct HTTP scraping of the CSLB website for real-time data\n\n"
+        "**Authentication:** Pass `X-API-Key` header for all `/api/*` endpoints."
+    ),
     version="1.0.0",
     lifespan=lifespan,
 )
 
 
 def _resolve_source(source: str | None) -> str:
-    if source and source in ("csv", "firecrawl", "scraper"):
+    if source and source in ("csv", "scraper"):
         return source
     return settings.data_source
 
 
-@app.get("/health")
+@app.get("/health", summary="Health check", description="Returns API health status and whether the database is loaded. No authentication required.")
 async def health():
     loaded = await db_is_loaded()
     return {
@@ -57,15 +64,25 @@ async def health():
     }
 
 
-@app.get("/api/stats", dependencies=[Depends(verify_api_key)])
+@app.get("/api/stats", dependencies=[Depends(verify_api_key)], summary="Database statistics", description="Returns record count, last import timestamp, and CSV filename.")
 async def stats():
     return await get_stats()
 
 
-@app.get("/api/license/{license_number}", response_model=LicenseResponse, dependencies=[Depends(verify_api_key)])
+@app.get("/api/field-metadata", response_model=FieldMetadataResponse, dependencies=[Depends(verify_api_key)], summary="Field metadata", description="Returns distinct values for enum-like fields from the database. Useful for building filters, dropdowns, and understanding the possible values each field can have.")
+async def field_metadata():
+    if not await db_is_loaded():
+        raise HTTPException(
+            status_code=503,
+            detail="Database not loaded. Import CSV data first.",
+        )
+    return await get_field_values()
+
+
+@app.get("/api/license/{license_number}", response_model=LicenseResponse, dependencies=[Depends(verify_api_key)], summary="Single license lookup", description="Look up a single CSLB license by number. Returns business info, license status, classifications, bond details, workers' compensation, and personnel data.")
 async def lookup_license(
     license_number: str,
-    source: str | None = Query(None, regex="^(csv|firecrawl|scraper)$"),
+    source: str | None = Query(None, regex="^(csv|scraper)$", description="Data source: csv (default) or scraper"),
 ):
     license_number = license_number.strip()
     if not license_number.isdigit() or len(license_number) > 8:
@@ -73,19 +90,8 @@ async def lookup_license(
 
     resolved_source = _resolve_source(source)
 
-    if resolved_source == "firecrawl":
-        if not settings.firecrawl_api_key:
-            raise HTTPException(
-                status_code=400,
-                detail="FIRECRAWL_API_KEY not configured",
-            )
-        result = scrape_license(license_number)
-        if not result:
-            raise HTTPException(status_code=404, detail="License not found")
-        return result
-
     if resolved_source == "scraper":
-        result = scraper_license(license_number)
+        result = scrape_license(license_number)
         if not result:
             raise HTTPException(status_code=404, detail="License not found")
         return result
@@ -102,12 +108,12 @@ async def lookup_license(
     return result
 
 
-@app.post("/api/licenses", response_model=BulkResponse, dependencies=[Depends(verify_api_key)])
+@app.post("/api/licenses", response_model=BulkResponse, dependencies=[Depends(verify_api_key)], summary="Bulk license lookup", description="Look up multiple licenses at once. CSV source supports up to 100 licenses per request, scraper supports up to 10.")
 async def bulk_lookup(request: BulkLicenseRequest):
     resolved_source = _resolve_source(request.source)
 
     # Validate limits
-    max_count = 10 if resolved_source in ("firecrawl", "scraper") else 100
+    max_count = 10 if resolved_source == "scraper" else 100
     if len(request.license_numbers) > max_count:
         raise HTTPException(
             status_code=400,
@@ -124,15 +130,8 @@ async def bulk_lookup(request: BulkLicenseRequest):
         else:
             valid_numbers.append(num)
 
-    if resolved_source == "firecrawl":
-        if not settings.firecrawl_api_key:
-            raise HTTPException(
-                status_code=400,
-                detail="FIRECRAWL_API_KEY not configured",
-            )
+    if resolved_source == "scraper":
         results = scrape_licenses(valid_numbers)
-    elif resolved_source == "scraper":
-        results = scraper_licenses(valid_numbers)
     else:
         if not await db_is_loaded():
             raise HTTPException(
