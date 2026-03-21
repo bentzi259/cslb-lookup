@@ -70,6 +70,60 @@ For bulk requests, set `"source"` in the JSON body:
 
 > **Scraper** — free, no API key needed. Fetches the CSLB license detail page directly via HTTP and parses the HTML. Limited to 10 licenses per bulk request.
 
+### Response Schema
+
+Each license lookup returns a `LicenseResponse` object. Some fields are only populated by one data source:
+
+```jsonc
+{
+  "license_number": "1105295",
+  "last_update": "03/18/2026",              // CSV only
+  "extract_date": "Data current as of ...", // Scraper only
+  "business_information": {
+    "business_name": "SKYLINE BUILDERS | SKYLINE ENERGY ROOFING INC",
+    "full_business_name": null,             // CSV only
+    "address": "13615 VICTORY BLVD #201, VAN NUYS, CA, 91401",
+    "county": "Los Angeles",               // CSV only
+    "phone": "(669) 377 3687",
+    "entity": "Corporation",
+    "issue_date": "05/26/2023",
+    "reissue_date": null,
+    "expire_date": "05/31/2027"
+  },
+  "license_status": {
+    "status": "CLEAR",                     // CSV: code, Scraper: full sentence
+    "secondary_status": "Pending IFS",     // CSV only
+    "additional_status": null,             // Scraper only (detailed explanation)
+    "inactivation_date": null,
+    "reactivation_date": null
+  },
+  "contractors_bond": {
+    "bond_number": "7901210858",
+    "bond_amount": "25000",                // CSV: raw number, Scraper: "$25,000"
+    "bond_company": "NATIONWIDE MUTUAL INSURANCE COMPANY",
+    "effective_date": "02/05/2026"
+  },
+  "classifications": [
+    { "code": "B", "description": "General Building Contractor" },
+    { "code": "C39", "description": "Roofing Contractor" }
+  ],
+  "workers_compensation": {
+    "coverage_type": "Workers' Compensation Insurance",
+    "insurance_company": "STATE COMPENSATION INSURANCE FUND",
+    "policy_number": "9337947",
+    "effective_date": "04/29/2023",
+    "expire_date": "04/29/2027"
+  },
+  "personnel": null,                       // Scraper only
+  "asbestos_reg": null,
+  "data_source": "csv"
+}
+```
+
+**CSV-only fields:** `last_update`, `full_business_name`, `county`, `secondary_status`
+
+**Scraper-only fields:** `extract_date`, `additional_status`, `personnel`
+
 ### Usage Examples
 
 ```bash
