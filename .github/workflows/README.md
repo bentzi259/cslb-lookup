@@ -52,3 +52,4 @@ helm upgrade cslb-lookup ./helm/cslb-lookup -n cslb-lookup \
   --set image.repository=cslblookupcr.azurecr.io/cslb-lookup \
   --set image.tag=prod-$TAG
 ```
+
