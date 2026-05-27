@@ -1,3 +1,4 @@
+import re
 import aiosqlite
 from pathlib import Path
 
@@ -141,6 +142,32 @@ def _row_to_response(row: dict) -> LicenseResponse:
     )
 
 
+_NUMERIC_LICENSE_RE = re.compile(r"^[0-9]{1,7}$")
+
+
+def _normalize_license(license_number: str) -> str | None:
+    """Fallback normalization for a license number that didn't match verbatim.
+
+    Strips surrounding whitespace and leading zeros only. Returns the candidate
+    only when it is purely numeric, 1-7 digits, and actually differs from the
+    trimmed input; otherwise returns None (meaning: do not attempt a fallback).
+
+    We deliberately do NOT strip interior/embedded non-digit characters. Doing so
+    coerces non-CSLB identifiers into coincidental collisions with real licenses
+    (e.g. "0D808818" -> "808818" is a real but unrelated contractor). The
+    no-collision guarantee for leading-zero stripping relies on a CSLB data
+    invariant: stored license_number keys are pure numeric with no leading zeros
+    (verified: 0 of ~244k keys carry a leading zero).
+    """
+    trimmed = (license_number or "").strip()
+    normalized = trimmed.lstrip("0")
+    if normalized == trimmed:
+        return None
+    if not _NUMERIC_LICENSE_RE.match(normalized):
+        return None
+    return normalized
+
+
 async def get_license(license_number: str) -> LicenseResponse | None:
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
@@ -148,23 +175,67 @@ async def get_license(license_number: str) -> LicenseResponse | None:
             "SELECT * FROM licenses WHERE license_number = ?", (license_number,)
         )
         row = await cursor.fetchone()
+        if row:
+            return _row_to_response(dict(row))
+
+        # Fallback: retry with leading zeros stripped (e.g. "0552794" -> "552794").
+        normalized = _normalize_license(license_number)
+        if not normalized:
+            return None
+        cursor = await db.execute(
+            "SELECT * FROM licenses WHERE license_number = ?", (normalized,)
+        )
+        row = await cursor.fetchone()
         if not row:
             return None
-        return _row_to_response(dict(row))
+        result = _row_to_response(dict(row))
+        # Echo back the originally requested number so callers that match results
+        # to their input by string equality keep working.
+        result.license_number = license_number
+        return result
 
 
 async def get_licenses(license_numbers: list[str]) -> list[LicenseResponse]:
     if not license_numbers:
         return []
-    placeholders = ",".join("?" for _ in license_numbers)
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
+        placeholders = ",".join("?" for _ in license_numbers)
         cursor = await db.execute(
             f"SELECT * FROM licenses WHERE license_number IN ({placeholders})",
             license_numbers,
         )
-        rows = await cursor.fetchall()
-        return [_row_to_response(dict(row)) for row in rows]
+        results = [_row_to_response(dict(row)) for row in await cursor.fetchall()]
+        found = {r.license_number for r in results}
+
+        # Fallback: for inputs that didn't match verbatim, retry normalized
+        # candidates. Map each normalized value back to the original input(s) so
+        # the echoed license_number matches what the caller sent (1-to-many safe).
+        normalized_to_originals: dict[str, list[str]] = {}
+        for original in license_numbers:
+            if original in found:
+                continue
+            normalized = _normalize_license(original)
+            if normalized:
+                normalized_to_originals.setdefault(normalized, []).append(original)
+
+        if normalized_to_originals:
+            norm_values = list(normalized_to_originals.keys())
+            ph = ",".join("?" for _ in norm_values)
+            cursor = await db.execute(
+                f"SELECT * FROM licenses WHERE license_number IN ({ph})",
+                norm_values,
+            )
+            for row in await cursor.fetchall():
+                row_dict = dict(row)
+                for original in normalized_to_originals.get(
+                    row_dict["license_number"], []
+                ):
+                    resp = _row_to_response(row_dict)
+                    resp.license_number = original
+                    results.append(resp)
+
+        return results
 
 
 async def get_stats() -> dict:
