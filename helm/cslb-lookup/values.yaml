@@ -1,5 +1,9 @@
 replicaCount: 1
 
+# Deployed resource name is pinned to "license-api" to match the prod service
+# naming (prod runs the same service as deployment/service "license-api").
+fullnameOverride: license-api
+
 image:
   repository: cslb-lookup
   tag: latest

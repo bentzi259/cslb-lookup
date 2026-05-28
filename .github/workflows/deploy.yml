@@ -86,7 +86,7 @@ jobs:
 
       - name: Helm upgrade
         run: |
-          helm upgrade --install cslb-lookup ./helm/cslb-lookup \
+          helm upgrade --install license-api ./helm/cslb-lookup \
             --namespace ${{ env.K8S_NAMESPACE }} \
             --create-namespace \
             --set image.repository=${{ env.ECR_REGISTRY }}/${{ env.ECR_REPOSITORY }} \
@@ -102,8 +102,8 @@ jobs:
 
       - name: Smoke test
         run: |
-          kubectl rollout status deployment/cslb-lookup -n ${{ env.K8S_NAMESPACE }} --timeout=2m
-          kubectl port-forward -n ${{ env.K8S_NAMESPACE }} svc/cslb-lookup 18001:8000 &
+          kubectl rollout status deployment/license-api -n ${{ env.K8S_NAMESPACE }} --timeout=2m
+          kubectl port-forward -n ${{ env.K8S_NAMESPACE }} svc/license-api 18001:8000 &
           PF_PID=$!
           sleep 5
           STATUS=$(curl -s http://localhost:18001/health | python3 -c "import json,sys; print(json.load(sys.stdin)['status'])")
@@ -135,7 +135,7 @@ jobs:
 
       - name: Helm upgrade
         run: |
-          helm upgrade --install cslb-lookup ./helm/cslb-lookup \
+          helm upgrade --install license-api ./helm/cslb-lookup \
             --namespace ${{ env.K8S_NAMESPACE }} \
             --create-namespace \
             --set image.repository=${{ env.ACR_REGISTRY }}/${{ env.ACR_REPOSITORY }} \
@@ -149,4 +149,4 @@ jobs:
             --wait --timeout 5m
 
       - name: Verify rollout
-        run: kubectl rollout status deployment/cslb-lookup -n ${{ env.K8S_NAMESPACE }} --timeout=2m
+        run: kubectl rollout status deployment/license-api -n ${{ env.K8S_NAMESPACE }} --timeout=2m
